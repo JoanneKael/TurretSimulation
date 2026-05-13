@@ -15,4 +15,14 @@ public class Projectile : MonoBehaviour
     {
         transform.Translate(Vector3.forward * speed * Time.deltaTime);
     }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        if (other.gameObject.layer == 6)
+        {
+            Debug.Log(other.gameObject.layer);
+            Drone d = other.gameObject.GetComponent<Drone>();
+            d.GetDamage(1);
+        }
+    }
 }

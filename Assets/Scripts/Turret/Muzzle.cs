@@ -1,9 +1,13 @@
+using System;
+using System.Collections;
 using UnityEngine;
+using UnityEngine.Audio;
 
 public class Muzzle : MonoBehaviour
 {
     public Transform pitchPivot;
     public Transform targetDrone;
+    public GameObject projectilePrefab;
 
     [Header("Rotation")]
     public float minPitch = -45f;
@@ -16,24 +20,34 @@ public class Muzzle : MonoBehaviour
     public bool isReady = false;
 
     [Header("Fire")]
-    public float fireTimer = 0f;
-    public float fireInterval = 0.5f;    
-    public float projectileSpeed = 12f;  
+    public float fireInterval = 0.5f;
+    public float projectileSpeed = 12f;
     public float projectileLifeTime = 3f;
+    public bool isFire = false;
+
+    private Coroutine fireCoroutine;
+    private Coroutine resetCoroutine;
+
+    [Header("SFX")]
+    public AudioSource audioSource;
+    public AudioClip fireSfx;
+    float recoilTime = 0.05f;
+    float returnTime = 0.1f;
 
     private void Update()
     {
         if (targetDrone == null) return;
 
-        fireTimer += Time.deltaTime;
-
         RotateTurretHead();
         CheckTurretAim();
 
-        if(isReady && fireTimer>= fireInterval)
+        if (isReady && !isFire && targetDrone.GetComponent<Drone>().hp > 0)
         {
-            FireProjectile();
-            fireTimer = 0f;
+            fireCoroutine = StartCoroutine(IEFire());
+        }
+        else if (!isReady && isFire || targetDrone.GetComponent<Drone>().hp <= 0)
+        {
+            StopFiring();
         }
     }
 
@@ -67,15 +81,97 @@ public class Muzzle : MonoBehaviour
         }
     }
 
-    private void FireProjectile()
+    private IEnumerator IEFire()
     {
-        GameObject projectile = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        isFire = true;
 
-        projectile.transform.localScale = Vector3.one * 0.4f ;
+        if (resetCoroutine != null)
+        {
+            StopCoroutine(resetCoroutine);
+            resetCoroutine = null;
+        }
+
+        GameObject projectile = Instantiate(projectilePrefab);
+        projectile.transform.localScale = Vector3.one * 0.4f;
         projectile.transform.position = muzzlePoint.position;
         projectile.transform.rotation = muzzlePoint.rotation;
 
         Projectile script = projectile.AddComponent<Projectile>();
         script.Initialize(fireInterval, projectileLifeTime, projectileSpeed);
+
+        if (audioSource != null && fireSfx != null)
+        {
+            audioSource.PlayOneShot(fireSfx);
+        }
+
+        Vector3 originalPos = new Vector3(0f, 0f, 0.8f);
+        Vector3 recoilPos = new Vector3(originalPos.x, originalPos.y, 0.3f);
+
+        float elapsed = 0f;
+        while (elapsed < recoilTime)
+        {
+            elapsed += Time.deltaTime;
+            muzzlePoint.localPosition = Vector3.Lerp(originalPos, recoilPos, elapsed / recoilTime);
+            yield return null;
+        }
+
+        elapsed = 0f;
+        while (elapsed < returnTime)
+        {
+            elapsed += Time.deltaTime;
+            muzzlePoint.localPosition = Vector3.Lerp(recoilPos, originalPos, elapsed / returnTime);
+            yield return null;
+        }
+
+        muzzlePoint.localPosition = originalPos;
+
+        float remainingCooldown = fireInterval - (recoilTime + returnTime);
+        if (remainingCooldown > 0)
+        {
+            yield return new WaitForSeconds(remainingCooldown);
+        }
+
+        isFire = false;
+        fireCoroutine = null;
+    }
+
+    private void StopFiring()
+    {
+        if (fireCoroutine != null)
+        {
+            StopCoroutine(fireCoroutine);
+            fireCoroutine = null;
+        }
+
+        isFire = false;
+
+        if (gameObject.activeInHierarchy && muzzlePoint != null)
+        {
+            if (resetCoroutine != null)
+            {
+                StopCoroutine(resetCoroutine);
+            }
+            resetCoroutine = StartCoroutine(IEResetMuzzle());
+        }
+    }
+
+    private IEnumerator IEResetMuzzle()
+    {
+        float resetTime = 0.1f;
+        float elapsed = 0f;
+
+        Vector3 currentPos = muzzlePoint.localPosition;
+
+        Vector3 targetPos = new Vector3(currentPos.x, currentPos.y, 0.8f);
+
+        while (elapsed < resetTime)
+        {
+            elapsed += Time.deltaTime;
+            muzzlePoint.localPosition = Vector3.Lerp(currentPos, targetPos, elapsed / resetTime);
+            yield return null;
+        }
+
+        muzzlePoint.localPosition = targetPos;
+        resetCoroutine = null;
     }
 }
